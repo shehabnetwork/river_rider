@@ -3,6 +3,17 @@ export default class BootScene extends Phaser.Scene {
     super("BootScene");
   }
 
+  preload() {
+    this.load.audio("fire", "assets/sounds/fire.wav");
+    this.load.audio("life-collected", "assets/sounds/life-collected.wav");
+    this.load.audio("obstacle-destroyed", "assets/sounds/obstacle-destroyed.wav");
+    this.load.audio("bridge-destroyed", "assets/sounds/bridge-destroyed.wav");
+    this.load.audio("crash", "assets/sounds/crash.wav");
+    this.load.audio("fuel-required", "assets/sounds/fuel-required.wav");
+    this.load.audio("refuel", "assets/sounds/refuel.wav");
+    this.load.audio("flying-loop", "assets/sounds/flying-loop.wav");
+  }
+
   create() {
     // All first-version art is generated at runtime to keep the project asset-free.
     this.createTerrainTile();

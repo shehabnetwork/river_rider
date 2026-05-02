@@ -68,6 +68,7 @@ export default class GameScene extends Phaser.Scene {
     this.invulnerable = false;
     this.waitingForRestart = false;
     this.gameEnded = false;
+    this.lowFuelWarningActive = false;
   }
 
   create() {
@@ -77,6 +78,8 @@ export default class GameScene extends Phaser.Scene {
     this.createHud();
     this.createTimers();
     this.registerCollisions();
+    this.startFlyingLoop();
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.stopFlyingLoop, this);
   }
 
   update(time, delta) {
@@ -337,7 +340,7 @@ export default class GameScene extends Phaser.Scene {
     bullet.body.setSize(6, 14).setOffset(2, 0);
     bullet.setVelocityY(-520);
     this.lastShotAt = time;
-    this.playSfx("shoot");
+    this.playSfx("fire");
   }
 
   spawnHazardWave() {
@@ -555,7 +558,17 @@ export default class GameScene extends Phaser.Scene {
     this.fuel -= (this.difficulty.fuelBurn + this.level * this.difficulty.fuelBurnStep) * dt;
     if (this.fuel <= 0) {
       this.fuel = 0;
+      this.playSfx("fuel-required");
       this.loseLife("OUT OF FUEL");
+      return;
+    }
+
+    if (this.fuel <= 20 && !this.lowFuelWarningActive) {
+      this.lowFuelWarningActive = true;
+      this.playSfx("fuel-required");
+      this.showMessage("FUEL REQUIRED");
+    } else if (this.fuel > 28) {
+      this.lowFuelWarningActive = false;
     }
   }
 
@@ -601,7 +614,7 @@ export default class GameScene extends Phaser.Scene {
     this.addScore(enemy.getData("points") ?? 100);
     this.createExplosion(enemy.x, enemy.y, 14);
     enemy.destroy();
-    this.playSfx("explosion");
+    this.playSfx("obstacle-destroyed");
   }
 
   bulletHitsFuel(bullet, fuel) {
@@ -609,7 +622,7 @@ export default class GameScene extends Phaser.Scene {
     this.addScore(40);
     this.createExplosion(fuel.x, fuel.y, 8);
     fuel.destroy();
-    this.playSfx("explosion");
+    this.playSfx("obstacle-destroyed");
   }
 
   bulletHitsBridge(bullet, bridge) {
@@ -629,7 +642,7 @@ export default class GameScene extends Phaser.Scene {
       bridge.destroy();
       this.bridgeActive = false;
       this.completeLevel();
-      this.playSfx("explosion");
+      this.playSfx("bridge-destroyed");
     }
   }
 
@@ -652,10 +665,11 @@ export default class GameScene extends Phaser.Scene {
 
   playerGetsFuel(player, fuel) {
     this.fuel = Phaser.Math.Clamp(this.fuel + 34, 0, MAX_FUEL);
+    this.lowFuelWarningActive = false;
     this.addScore(60);
     this.createExplosion(fuel.x, fuel.y, 10);
     fuel.destroy();
-    this.playSfx("fuel");
+    this.playSfx("refuel");
     this.showMessage("FUEL +");
   }
 
@@ -665,7 +679,7 @@ export default class GameScene extends Phaser.Scene {
     this.createExplosion(life.x, life.y, 12);
     this.tweens.killTweensOf(life);
     life.destroy();
-    this.playSfx("fuel");
+    this.playSfx("life-collected");
     this.showMessage("EXTRA LIFE");
   }
 
@@ -680,7 +694,7 @@ export default class GameScene extends Phaser.Scene {
     while (this.score >= this.nextExtraLifeScore) {
       this.lives += 1;
       this.nextExtraLifeScore += 10000;
-      this.playSfx("fuel");
+      this.playSfx("life-collected");
       this.showMessage("EXTRA LIFE");
     }
   }
@@ -718,7 +732,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.lives -= 1;
-    this.playSfx("hit");
+    this.playSfx("crash");
     this.createExplosion(this.player.x, this.player.y, 28);
     this.showMessage(reason);
 
@@ -736,6 +750,7 @@ export default class GameScene extends Phaser.Scene {
     this.bridgeActive = false;
     this.distance = 0;
     this.fuel = Math.max(54, this.fuel);
+    this.lowFuelWarningActive = false;
     this.player.setPosition(PLAYER_START.x, PLAYER_START.y);
     this.player.setVelocity(0, 0);
     this.player.setRotation(0);
@@ -769,6 +784,7 @@ export default class GameScene extends Phaser.Scene {
     this.spawnDelay = Math.max(this.difficulty.minSpawnDelay, this.spawnDelay - this.difficulty.spawnStep);
     this.spawnTimer.delay = this.spawnDelay;
     this.fuel = Phaser.Math.Clamp(this.fuel + 46, 0, MAX_FUEL);
+    this.lowFuelWarningActive = false;
     this.distance = 0;
     this.nextBridgeDistance = this.difficulty.bridgeDistance + this.level * this.difficulty.bridgeStep;
     this.showMessage(`LEVEL ${this.level}`);
@@ -776,6 +792,7 @@ export default class GameScene extends Phaser.Scene {
 
   endGame() {
     this.gameEnded = true;
+    this.stopFlyingLoop();
     this.player.setTint(0xff5668);
     this.time.delayedCall(450, () => {
       this.scene.start("GameOverScene", {
@@ -818,9 +835,40 @@ export default class GameScene extends Phaser.Scene {
   }
 
   playSfx(key) {
-    // Placeholder audio hook: add matching loaded audio keys later and this works.
+    const volumes = {
+      fire: 0.32,
+      "life-collected": 0.48,
+      "obstacle-destroyed": 0.42,
+      "bridge-destroyed": 0.58,
+      crash: 0.54,
+      "fuel-required": 0.4,
+      refuel: 0.45,
+    };
+
     if (this.cache.audio.exists(key)) {
-      this.sound.play(key, { volume: 0.45 });
+      this.sound.play(key, { volume: volumes[key] ?? 0.45 });
     }
+  }
+
+  startFlyingLoop() {
+    if (!this.cache.audio.exists("flying-loop")) {
+      return;
+    }
+
+    this.flyingLoop = this.sound.add("flying-loop", {
+      loop: true,
+      volume: 0.18,
+    });
+    this.flyingLoop.play();
+  }
+
+  stopFlyingLoop() {
+    if (!this.flyingLoop) {
+      return;
+    }
+
+    this.flyingLoop.stop();
+    this.flyingLoop.destroy();
+    this.flyingLoop = null;
   }
 }
