@@ -2,6 +2,8 @@ const WIDTH = 480;
 const HEIGHT = 720;
 const PLAYER_START = { x: WIDTH / 2, y: HEIGHT - 120 };
 const MAX_FUEL = 100;
+const POWERUP_DROP_CHANCE = 18;
+const POWERUP_TYPES = ["clear", "shield", "auto", "fork"];
 const DIFFICULTIES = {
   mist: {
     key: "mist",
@@ -69,6 +71,12 @@ export default class GameScene extends Phaser.Scene {
     this.waitingForRestart = false;
     this.gameEnded = false;
     this.lowFuelWarningActive = false;
+    this.shieldActive = false;
+    this.autoShotActive = false;
+    this.forkShotActive = false;
+    this.shieldTimer = null;
+    this.autoShotTimer = null;
+    this.forkShotTimer = null;
   }
 
   create() {
@@ -102,7 +110,9 @@ export default class GameScene extends Phaser.Scene {
     this.updateMovingHazards(time, dt);
     this.updateFuelStations(dt);
     this.updateExtraLifePickups(dt);
+    this.updatePowerups(dt);
     this.updateBridges();
+    this.updateShieldAura(time);
     this.cleanupOffscreenObjects();
     this.consumeFuel(dt);
 
@@ -145,14 +155,20 @@ export default class GameScene extends Phaser.Scene {
 
     this.bullets = this.physics.add.group({
       classType: Phaser.Physics.Arcade.Image,
-      maxSize: 24,
+      maxSize: 72,
       runChildUpdate: false,
     });
 
     this.enemies = this.physics.add.group();
     this.fuels = this.physics.add.group();
     this.extraLives = this.physics.add.group();
+    this.powerups = this.physics.add.group();
     this.bridges = this.physics.add.group();
+
+    this.shieldAura = this.add.circle(this.player.x, this.player.y, 31, 0x72f7ff, 0.18)
+      .setStrokeStyle(3, 0xeafcff, 0.78)
+      .setDepth(11)
+      .setVisible(false);
 
     // A single emitter handles small hit, pickup, and bridge explosions.
     this.explosions = this.add.particles(0, 0, "spark", {
@@ -324,6 +340,7 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.player, this.enemies, this.playerHitsDanger, undefined, this);
     this.physics.add.overlap(this.player, this.fuels, this.playerGetsFuel, undefined, this);
     this.physics.add.overlap(this.player, this.extraLives, this.playerGetsExtraLife, undefined, this);
+    this.physics.add.overlap(this.player, this.powerups, this.playerGetsPowerup, undefined, this);
     this.physics.add.overlap(this.player, this.bridges, this.playerHitsDanger, undefined, this);
   }
 
@@ -405,7 +422,7 @@ export default class GameScene extends Phaser.Scene {
     const tilt = vx === 0 ? 0 : Phaser.Math.Clamp(vx / speed, -1, 1) * 0.22;
     this.player.rotation = Phaser.Math.Linear(this.player.rotation, tilt, 8 * dt);
 
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.space) || Phaser.Input.Keyboard.JustDown(this.keys.fire) || this.touchControls.fire) {
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.space) || Phaser.Input.Keyboard.JustDown(this.keys.fire) || this.touchControls.fire || this.autoShotActive) {
       this.fireBullet(time);
     }
   }
@@ -415,7 +432,24 @@ export default class GameScene extends Phaser.Scene {
       return;
     }
 
-    const bullet = this.bullets.get(this.player.x, this.player.y - 24, "bullet");
+    const shots = this.forkShotActive
+      ? [
+        { vx: -190, vy: -490, rotation: -0.32 },
+        { vx: 0, vy: -520, rotation: 0 },
+        { vx: 190, vy: -490, rotation: 0.32 },
+      ]
+      : [{ vx: 0, vy: -520, rotation: 0 }];
+
+    for (const shot of shots) {
+      this.launchBullet(this.player.x, this.player.y - 24, shot.vx, shot.vy, shot.rotation);
+    }
+
+    this.lastShotAt = time;
+    this.playSfx("fire");
+  }
+
+  launchBullet(x, y, vx, vy, rotation) {
+    const bullet = this.bullets.get(x, y, "bullet");
     if (!bullet) {
       return;
     }
@@ -423,9 +457,8 @@ export default class GameScene extends Phaser.Scene {
     bullet.setActive(true).setVisible(true).setDepth(9);
     bullet.body.enable = true;
     bullet.body.setSize(6, 14).setOffset(2, 0);
-    bullet.setVelocityY(-520);
-    this.lastShotAt = time;
-    this.playSfx("fire");
+    bullet.setRotation(rotation);
+    bullet.setVelocity(vx, vy);
   }
 
   spawnHazardWave() {
@@ -490,6 +523,34 @@ export default class GameScene extends Phaser.Scene {
     fuel.body.setSize(24, 26).setOffset(6, 6);
     fuel.setData("laneOffset", Phaser.Math.Between(-38, 38));
     fuel.setVelocity(0, this.scrollSpeed * 0.44);
+  }
+
+  maybeSpawnPowerup(source) {
+    if (this.powerups.countActive(true) > 2 || Phaser.Math.Between(1, 100) > POWERUP_DROP_CHANCE) {
+      return;
+    }
+
+    const type = Phaser.Utils.Array.GetRandom(POWERUP_TYPES);
+    const bounds = this.getRiverBoundsAt(source.y);
+    const margin = 38;
+    const x = Phaser.Math.Clamp(source.x, bounds.left + margin, bounds.right - margin);
+    const gift = this.powerups.create(x, source.y, `gift-${type}`);
+
+    gift.setDepth(6);
+    gift.body.setSize(24, 24).setOffset(6, 8);
+    gift.setData("type", type);
+    gift.setData("laneOffset", Phaser.Math.Clamp(x - bounds.center, -58, 58));
+    gift.setVelocity(0, this.scrollSpeed * 0.54);
+
+    this.tweens.add({
+      targets: gift,
+      angle: { from: -7, to: 7 },
+      scale: 1.12,
+      yoyo: true,
+      repeat: -1,
+      duration: 340,
+      ease: "Sine.easeInOut",
+    });
   }
 
   spawnBridge() {
@@ -588,6 +649,35 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  updatePowerups(dt) {
+    for (const gift of this.powerups.getChildren()) {
+      if (!gift.active) {
+        continue;
+      }
+
+      const bounds = this.getRiverBoundsAt(gift.y);
+      const margin = 34;
+      const maxOffset = Math.max(0, bounds.width / 2 - margin);
+      const laneOffset = Phaser.Math.Clamp(gift.getData("laneOffset") ?? 0, -maxOffset, maxOffset);
+      const targetX = Phaser.Math.Clamp(bounds.center + laneOffset, bounds.left + margin, bounds.right - margin);
+
+      gift.x = Phaser.Math.Linear(gift.x, targetX, 5 * dt);
+      gift.x = Phaser.Math.Clamp(gift.x, bounds.left + margin, bounds.right - margin);
+      gift.setVelocityY(this.scrollSpeed * 0.54);
+    }
+  }
+
+  updateShieldAura(time) {
+    if (!this.shieldAura) {
+      return;
+    }
+
+    this.shieldAura.setPosition(this.player.x, this.player.y);
+    if (this.shieldActive) {
+      this.shieldAura.setScale(1 + Math.sin(time * 0.012) * 0.08);
+    }
+  }
+
   updateBridges() {
     for (const bridge of this.bridges.getChildren()) {
       if (!bridge.active) {
@@ -611,7 +701,7 @@ export default class GameScene extends Phaser.Scene {
       }
     });
 
-    [this.enemies, this.fuels, this.extraLives, this.bridges].forEach((group) => {
+    [this.enemies, this.fuels, this.extraLives, this.powerups, this.bridges].forEach((group) => {
       group.children.each((item) => {
         if (item.active && item.y > HEIGHT + 80) {
           if (item.getData("kind") === "bridge") {
@@ -625,7 +715,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   clearRunObjects() {
-    [this.enemies, this.fuels, this.extraLives, this.bridges].forEach((group) => {
+    [this.enemies, this.fuels, this.extraLives, this.powerups, this.bridges].forEach((group) => {
       group.children.each((item) => {
         this.tweens.killTweensOf(item);
       });
@@ -658,7 +748,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   checkBankCollision() {
-    if (this.invulnerable) {
+    if (this.invulnerable || this.shieldActive) {
       return;
     }
 
@@ -696,6 +786,7 @@ export default class GameScene extends Phaser.Scene {
   bulletHitsEnemy(bullet, enemy) {
     this.recycleBullet(bullet);
     this.maybeSpawnExtraLife(enemy);
+    this.maybeSpawnPowerup(enemy);
     this.addScore(enemy.getData("points") ?? 100);
     this.createExplosion(enemy.x, enemy.y, 14);
     enemy.destroy();
@@ -722,6 +813,7 @@ export default class GameScene extends Phaser.Scene {
     });
 
     if (hp <= 0) {
+      this.maybeSpawnPowerup(bridge);
       this.addScore(750 + this.level * 150);
       this.createExplosion(bridge.x, bridge.y, 42);
       bridge.destroy();
@@ -733,6 +825,20 @@ export default class GameScene extends Phaser.Scene {
 
   playerHitsDanger(player, danger) {
     if (this.invulnerable || this.gameEnded) {
+      return;
+    }
+
+    if (this.shieldActive) {
+      if (danger?.active) {
+        this.addScore(danger.getData("points") ?? 100);
+        this.createExplosion(danger.x, danger.y, 16);
+        if (danger.getData("kind") === "bridge") {
+          this.bridgeActive = false;
+          this.distance = this.nextBridgeDistance - 420;
+        }
+        danger.destroy();
+        this.playSfx("obstacle-destroyed");
+      }
       return;
     }
 
@@ -766,6 +872,96 @@ export default class GameScene extends Phaser.Scene {
     life.destroy();
     this.playSfx("life-collected");
     this.showMessage("EXTRA LIFE");
+  }
+
+  playerGetsPowerup(player, gift) {
+    const type = gift.getData("type");
+    this.addScore(120);
+    this.createExplosion(gift.x, gift.y, 12);
+    this.tweens.killTweensOf(gift);
+    gift.destroy();
+    this.playSfx("life-collected");
+    this.applyPowerup(type);
+  }
+
+  applyPowerup(type) {
+    if (type === "clear") {
+      const cleared = this.clearVisibleObstacles();
+      this.showMessage(cleared > 0 ? "SCREEN CLEAR" : "CLEAR READY");
+      return;
+    }
+
+    if (type === "shield") {
+      this.activateTimedPowerup("shield", 5000, "SHIELD 5s");
+      return;
+    }
+
+    if (type === "auto") {
+      this.activateTimedPowerup("autoShot", 10000, "AUTO FIRE 10s");
+      return;
+    }
+
+    if (type === "fork") {
+      this.activateTimedPowerup("forkShot", 10000, "FORK SHOT 10s");
+    }
+  }
+
+  clearVisibleObstacles() {
+    let cleared = 0;
+
+    for (const enemy of this.enemies.getChildren()) {
+      if (!enemy.active || enemy.y < 0 || enemy.y > HEIGHT) {
+        continue;
+      }
+
+      cleared += 1;
+      this.addScore(enemy.getData("points") ?? 100);
+      this.createExplosion(enemy.x, enemy.y, 16);
+      enemy.destroy();
+    }
+
+    for (const bridge of this.bridges.getChildren()) {
+      if (!bridge.active || bridge.y < -60 || bridge.y > HEIGHT) {
+        continue;
+      }
+
+      cleared += 1;
+      this.addScore(750 + this.level * 150);
+      this.createExplosion(bridge.x, bridge.y, 42);
+      bridge.destroy();
+      this.bridgeActive = false;
+      this.completeLevel();
+    }
+
+    if (cleared > 0) {
+      this.playSfx("bridge-destroyed");
+    }
+
+    return cleared;
+  }
+
+  activateTimedPowerup(key, duration, message) {
+    const activeProperty = `${key}Active`;
+    const timerProperty = `${key}Timer`;
+    this[activeProperty] = true;
+
+    if (this[timerProperty]) {
+      this[timerProperty].remove(false);
+    }
+
+    if (key === "shield" && this.shieldAura) {
+      this.shieldAura.setVisible(true);
+    }
+
+    this[timerProperty] = this.time.delayedCall(duration, () => {
+      this[activeProperty] = false;
+      this[timerProperty] = null;
+      if (key === "shield" && this.shieldAura) {
+        this.shieldAura.setVisible(false);
+      }
+    });
+
+    this.showMessage(message);
   }
 
   recycleBullet(bullet) {
@@ -832,6 +1028,7 @@ export default class GameScene extends Phaser.Scene {
 
   resetLevelStart() {
     this.clearRunObjects();
+    this.clearPowerupEffects();
     this.bridgeActive = false;
     this.distance = 0;
     this.fuel = Math.max(54, this.fuel);
@@ -839,6 +1036,22 @@ export default class GameScene extends Phaser.Scene {
     this.player.setPosition(PLAYER_START.x, PLAYER_START.y);
     this.player.setVelocity(0, 0);
     this.player.setRotation(0);
+  }
+
+  clearPowerupEffects() {
+    ["shield", "autoShot", "forkShot"].forEach((key) => {
+      const activeProperty = `${key}Active`;
+      const timerProperty = `${key}Timer`;
+      this[activeProperty] = false;
+      if (this[timerProperty]) {
+        this[timerProperty].remove(false);
+        this[timerProperty] = null;
+      }
+    });
+
+    if (this.shieldAura) {
+      this.shieldAura.setVisible(false);
+    }
   }
 
   enterRestartPause(message) {
@@ -877,6 +1090,7 @@ export default class GameScene extends Phaser.Scene {
 
   endGame() {
     this.gameEnded = true;
+    this.clearPowerupEffects();
     this.stopFlyingLoop();
     this.player.setTint(0xff5668);
     this.time.delayedCall(450, () => {

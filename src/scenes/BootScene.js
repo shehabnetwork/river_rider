@@ -23,6 +23,7 @@ export default class BootScene extends Phaser.Scene {
     this.createEnemyTextures();
     this.createFuelTexture();
     this.createLifeTexture();
+    this.createGiftTextures();
     this.createBridgeTexture();
     this.createParticleTexture();
 
@@ -180,6 +181,64 @@ export default class BootScene extends Phaser.Scene {
     g.strokeCircle(13, 15, 8);
     g.strokeCircle(23, 15, 8);
     g.generateTexture("life", 36, 38);
+    g.destroy();
+  }
+
+  createGiftTextures() {
+    this.createGiftTexture("gift-clear", 0xff5b70, 0xfff3a0, (g) => {
+      g.fillCircle(18, 18, 8);
+      g.lineStyle(3, 0xfff3a0);
+      for (let i = 0; i < 8; i += 1) {
+        const angle = i * Math.PI / 4;
+        g.lineBetween(18 + Math.cos(angle) * 11, 18 + Math.sin(angle) * 11, 18 + Math.cos(angle) * 16, 18 + Math.sin(angle) * 16);
+      }
+    });
+
+    this.createGiftTexture("gift-shield", 0x72f7ff, 0x06141c, (g) => {
+      g.fillStyle(0xeafcff);
+      g.fillTriangle(18, 8, 8, 13, 10, 23);
+      g.fillTriangle(18, 8, 28, 13, 26, 23);
+      g.fillTriangle(10, 23, 26, 23, 18, 31);
+      g.fillStyle(0x06141c, 0.78);
+      g.fillTriangle(18, 13, 13, 16, 14, 22);
+      g.fillTriangle(18, 13, 23, 16, 22, 22);
+      g.fillTriangle(14, 22, 22, 22, 18, 26);
+    });
+
+    this.createGiftTexture("gift-auto", 0xffd35c, 0x06141c, (g) => {
+      g.fillRect(12, 8, 4, 20);
+      g.fillRect(20, 8, 4, 20);
+      g.fillStyle(0xffffff);
+      g.fillRect(11, 7, 6, 4);
+      g.fillRect(19, 7, 6, 4);
+    });
+
+    this.createGiftTexture("gift-fork", 0xd84bff, 0xffffff, (g) => {
+      g.lineStyle(4, 0xffffff);
+      g.lineBetween(18, 29, 18, 8);
+      g.lineBetween(18, 29, 8, 10);
+      g.lineBetween(18, 29, 28, 10);
+      g.fillTriangle(18, 5, 14, 13, 22, 13);
+      g.fillTriangle(5, 8, 7, 17, 13, 12);
+      g.fillTriangle(31, 8, 29, 17, 23, 12);
+    });
+  }
+
+  createGiftTexture(key, fill, ribbon, drawIcon) {
+    const g = this.make.graphics({ x: 0, y: 0, add: false });
+    g.fillStyle(0x09141f, 0.3);
+    g.fillEllipse(18, 33, 31, 8);
+    g.fillStyle(fill);
+    g.fillRoundedRect(5, 8, 26, 25, 4);
+    g.fillStyle(ribbon, 0.9);
+    g.fillRect(16, 8, 4, 25);
+    g.fillRect(5, 17, 26, 4);
+    g.fillTriangle(16, 8, 11, 4, 10, 10);
+    g.fillTriangle(20, 8, 25, 4, 26, 10);
+    drawIcon(g);
+    g.lineStyle(2, 0xffffff, 0.8);
+    g.strokeRoundedRect(5, 8, 26, 25, 4);
+    g.generateTexture(key, 36, 40);
     g.destroy();
   }
 
