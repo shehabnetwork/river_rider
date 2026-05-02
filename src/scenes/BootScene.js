@@ -11,10 +11,11 @@ export default class BootScene extends Phaser.Scene {
     this.createBulletTexture();
     this.createEnemyTextures();
     this.createFuelTexture();
+    this.createLifeTexture();
     this.createBridgeTexture();
     this.createParticleTexture();
 
-    this.scene.start("GameScene");
+    this.scene.start("DifficultyScene");
   }
 
   createTerrainTile() {
@@ -150,6 +151,24 @@ export default class BootScene extends Phaser.Scene {
     g.lineStyle(2, 0xd9ffd5);
     g.strokeRoundedRect(7, 6, 22, 24, 4);
     g.generateTexture("fuel", 36, 38);
+    g.destroy();
+  }
+
+  createLifeTexture() {
+    const g = this.make.graphics({ x: 0, y: 0, add: false });
+    g.fillStyle(0x09141f, 0.28);
+    g.fillEllipse(18, 32, 31, 8);
+    g.fillStyle(0xff4f7b);
+    g.fillCircle(13, 15, 8);
+    g.fillCircle(23, 15, 8);
+    g.fillTriangle(6, 18, 30, 18, 18, 32);
+    g.fillStyle(0xffd6e2);
+    g.fillRect(16, 10, 4, 17);
+    g.fillRect(10, 16, 16, 4);
+    g.lineStyle(2, 0xffffff, 0.85);
+    g.strokeCircle(13, 15, 8);
+    g.strokeCircle(23, 15, 8);
+    g.generateTexture("life", 36, 38);
     g.destroy();
   }
 

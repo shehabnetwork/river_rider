@@ -6,6 +6,7 @@ export default class GameOverScene extends Phaser.Scene {
   init(data) {
     this.finalScore = data.score ?? 0;
     this.finalLevel = data.level ?? 1;
+    this.difficultyName = data.difficultyName ?? "STORM ACE";
   }
 
   create() {
@@ -28,7 +29,7 @@ export default class GameOverScene extends Phaser.Scene {
       strokeThickness: 7,
     }).setOrigin(0.5);
 
-    this.add.text(240, 340, `SCORE ${this.finalScore}\nLEVEL ${this.finalLevel}`, {
+    this.add.text(240, 340, `SCORE ${this.finalScore}\nLEVEL ${this.finalLevel}\n${this.difficultyName}`, {
       fontFamily: "monospace",
       fontSize: "22px",
       color: "#f8fbff",
@@ -36,7 +37,7 @@ export default class GameOverScene extends Phaser.Scene {
       lineSpacing: 12,
     }).setOrigin(0.5);
 
-    const restart = this.add.text(240, 452, "RESTART", {
+    const restart = this.add.text(240, 470, "SELECT ROUTE", {
       fontFamily: "monospace",
       fontSize: "24px",
       color: "#07151d",
@@ -46,9 +47,9 @@ export default class GameOverScene extends Phaser.Scene {
 
     restart.on("pointerover", () => restart.setStyle({ backgroundColor: "#ffe176" }));
     restart.on("pointerout", () => restart.setStyle({ backgroundColor: "#6ff8a4" }));
-    restart.on("pointerdown", () => this.scene.start("GameScene"));
+    restart.on("pointerdown", () => this.scene.start("DifficultyScene"));
 
-    this.input.keyboard.once("keydown-SPACE", () => this.scene.start("GameScene"));
-    this.input.keyboard.once("keydown-ENTER", () => this.scene.start("GameScene"));
+    this.input.keyboard.once("keydown-SPACE", () => this.scene.start("DifficultyScene"));
+    this.input.keyboard.once("keydown-ENTER", () => this.scene.start("DifficultyScene"));
   }
 }
