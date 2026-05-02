@@ -76,6 +76,7 @@ export default class GameScene extends Phaser.Scene {
     this.createActors();
     this.createControls();
     this.createHud();
+    this.createTouchControls();
     this.createTimers();
     this.registerCollisions();
     this.startFlyingLoop();
@@ -175,7 +176,91 @@ export default class GameScene extends Phaser.Scene {
       fire: Phaser.Input.Keyboard.KeyCodes.SPACE,
     });
     this.input.keyboard.on("keydown", this.releaseRestartPause, this);
+    this.input.on("pointerdown", this.releaseRestartPause, this);
+    this.input.addPointer(4);
+    this.touchControls = {
+      up: false,
+      down: false,
+      left: false,
+      right: false,
+      fire: false,
+    };
     this.lastShotAt = 0;
+  }
+
+  createTouchControls() {
+    const isTouchDevice = this.sys.game.device.input.touch;
+    const hasCoarsePointer = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
+    if (!isTouchDevice && !hasCoarsePointer) {
+      return;
+    }
+
+    this.touchControlLayer = this.add.container(0, 0).setDepth(55);
+    const padX = 88;
+    const padY = HEIGHT - 92;
+    const fireX = WIDTH - 82;
+    const fireY = HEIGHT - 92;
+
+    this.addTouchButton(padX, padY - 46, 50, 44, "up", -Math.PI / 2);
+    this.addTouchButton(padX, padY + 46, 50, 44, "down", Math.PI / 2);
+    this.addTouchButton(padX - 46, padY, 44, 50, "left", Math.PI);
+    this.addTouchButton(padX + 46, padY, 44, 50, "right", 0);
+    this.addFireButton(fireX, fireY);
+  }
+
+  addTouchButton(x, y, width, height, control, iconRotation) {
+    const bg = this.add.rectangle(x, y, width, height, 0x06141c, 0.48)
+      .setStrokeStyle(2, 0xeafcff, 0.48)
+      .setInteractive({ useHandCursor: true });
+    const icon = this.add.triangle(x, y, 12, 0, -8, -12, -8, 12, 0xeafcff, 0.72)
+      .setRotation(iconRotation);
+
+    const press = () => {
+      this.touchControls[control] = true;
+      bg.setFillStyle(0x72f7ff, 0.36);
+      bg.setStrokeStyle(2, 0xffffff, 0.78);
+    };
+    const release = () => {
+      this.touchControls[control] = false;
+      bg.setFillStyle(0x06141c, 0.48);
+      bg.setStrokeStyle(2, 0xeafcff, 0.48);
+    };
+
+    bg.on("pointerdown", press);
+    bg.on("pointerup", release);
+    bg.on("pointerout", release);
+    bg.on("pointerupoutside", release);
+    this.touchControlLayer.add([bg, icon]);
+  }
+
+  addFireButton(x, y) {
+    const bg = this.add.circle(x, y, 42, 0xff5b70, 0.54)
+      .setStrokeStyle(3, 0xffffff, 0.7)
+      .setInteractive({ useHandCursor: true });
+    const label = this.add.text(x, y, "FIRE", {
+      fontFamily: "monospace",
+      fontSize: "15px",
+      color: "#fff6f7",
+      stroke: "#160a12",
+      strokeThickness: 4,
+    }).setOrigin(0.5);
+
+    const press = () => {
+      this.touchControls.fire = true;
+      bg.setFillStyle(0xffd35c, 0.62);
+      bg.setStrokeStyle(3, 0xffffff, 0.9);
+    };
+    const release = () => {
+      this.touchControls.fire = false;
+      bg.setFillStyle(0xff5b70, 0.54);
+      bg.setStrokeStyle(3, 0xffffff, 0.7);
+    };
+
+    bg.on("pointerdown", press);
+    bg.on("pointerup", release);
+    bg.on("pointerout", release);
+    bg.on("pointerupoutside", release);
+    this.touchControlLayer.add([bg, label]);
   }
 
   createHud() {
@@ -301,16 +386,16 @@ export default class GameScene extends Phaser.Scene {
     let vx = 0;
     let vy = 0;
 
-    if (this.cursors.left.isDown || this.keys.left.isDown) {
+    if (this.cursors.left.isDown || this.keys.left.isDown || this.touchControls.left) {
       vx -= speed;
     }
-    if (this.cursors.right.isDown || this.keys.right.isDown) {
+    if (this.cursors.right.isDown || this.keys.right.isDown || this.touchControls.right) {
       vx += speed;
     }
-    if (this.cursors.up.isDown || this.keys.up.isDown) {
+    if (this.cursors.up.isDown || this.keys.up.isDown || this.touchControls.up) {
       vy -= speed;
     }
-    if (this.cursors.down.isDown || this.keys.down.isDown) {
+    if (this.cursors.down.isDown || this.keys.down.isDown || this.touchControls.down) {
       vy += speed;
     }
 
@@ -320,7 +405,7 @@ export default class GameScene extends Phaser.Scene {
     const tilt = vx === 0 ? 0 : Phaser.Math.Clamp(vx / speed, -1, 1) * 0.22;
     this.player.rotation = Phaser.Math.Linear(this.player.rotation, tilt, 8 * dt);
 
-    if (Phaser.Input.Keyboard.JustDown(this.cursors.space) || Phaser.Input.Keyboard.JustDown(this.keys.fire)) {
+    if (Phaser.Input.Keyboard.JustDown(this.cursors.space) || Phaser.Input.Keyboard.JustDown(this.keys.fire) || this.touchControls.fire) {
       this.fireBullet(time);
     }
   }
@@ -742,7 +827,7 @@ export default class GameScene extends Phaser.Scene {
     }
 
     this.resetLevelStart();
-    this.enterRestartPause(`${reason} - PRESS A KEY`);
+    this.enterRestartPause(`${reason} - PRESS KEY / TAP`);
   }
 
   resetLevelStart() {
