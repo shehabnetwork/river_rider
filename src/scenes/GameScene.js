@@ -2,7 +2,6 @@ const WIDTH = 480;
 const HEIGHT = 720;
 const PLAYER_START = { x: WIDTH / 2, y: HEIGHT - 120 };
 const MAX_FUEL = 100;
-const POWERUP_DROP_CHANCE = 18;
 const POWERUP_TYPES = ["clear", "shield", "auto", "fork"];
 const DIFFICULTIES = {
   mist: {
@@ -18,6 +17,7 @@ const DIFFICULTIES = {
     fuelBurn: 2.25,
     fuelBurnStep: 0.18,
     extraLifeDropRange: [28, 38],
+    powerupDropRange: [30, 42],
   },
   rapids: {
     key: "rapids",
@@ -32,6 +32,7 @@ const DIFFICULTIES = {
     fuelBurn: 2.75,
     fuelBurnStep: 0.22,
     extraLifeDropRange: [31, 43],
+    powerupDropRange: [34, 48],
   },
   storm: {
     key: "storm",
@@ -46,6 +47,7 @@ const DIFFICULTIES = {
     fuelBurn: 3.2,
     fuelBurnStep: 0.28,
     extraLifeDropRange: [34, 46],
+    powerupDropRange: [38, 54],
   },
 };
 
@@ -59,6 +61,7 @@ export default class GameScene extends Phaser.Scene {
     this.score = 0;
     this.nextExtraLifeScore = 10000;
     this.extraLifeDropCountdown = Phaser.Math.Between(...this.difficulty.extraLifeDropRange);
+    this.powerupDropCountdown = Phaser.Math.Between(...this.difficulty.powerupDropRange);
     this.lives = 3;
     this.level = 1;
     this.fuel = MAX_FUEL;
@@ -526,7 +529,13 @@ export default class GameScene extends Phaser.Scene {
   }
 
   maybeSpawnPowerup(source) {
-    if (this.powerups.countActive(true) > 2 || Phaser.Math.Between(1, 100) > POWERUP_DROP_CHANCE) {
+    this.powerupDropCountdown -= 1;
+    if (this.powerupDropCountdown > 0) {
+      return;
+    }
+
+    this.powerupDropCountdown = Phaser.Math.Between(...this.difficulty.powerupDropRange);
+    if (this.powerups.countActive(true) > 0) {
       return;
     }
 
@@ -813,7 +822,6 @@ export default class GameScene extends Phaser.Scene {
     });
 
     if (hp <= 0) {
-      this.maybeSpawnPowerup(bridge);
       this.addScore(750 + this.level * 150);
       this.createExplosion(bridge.x, bridge.y, 42);
       bridge.destroy();
