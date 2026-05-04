@@ -2,6 +2,11 @@ const WIDTH = 480;
 const HEIGHT = 720;
 const PLAYER_START = { x: WIDTH / 2, y: HEIGHT - 120 };
 const MAX_FUEL = 100;
+const FUEL_DRAIN_DAMAGE = MAX_FUEL * 0.5;
+const MAX_RESERVE_TANKS = 3;
+const RESERVE_TANK_THRESHOLD = 80;
+const MAX_CHEAT_LEVEL = 99;
+const FUEL_DRAIN_SPAWN_RANGE = [20, 25];
 const POWERUP_TYPES = ["clear", "shield", "auto", "fork"];
 const DIFFICULTIES = {
   mist: {
@@ -62,9 +67,11 @@ export default class GameScene extends Phaser.Scene {
     this.nextExtraLifeScore = 10000;
     this.extraLifeDropCountdown = Phaser.Math.Between(...this.difficulty.extraLifeDropRange);
     this.powerupDropCountdown = Phaser.Math.Between(...this.difficulty.powerupDropRange);
+    this.fuelDrainSpawnCountdown = Phaser.Math.Between(...FUEL_DRAIN_SPAWN_RANGE);
     this.lives = 3;
     this.level = 1;
     this.fuel = MAX_FUEL;
+    this.reserveFuelTanks = 0;
     this.scrollSpeed = this.difficulty.scrollSpeed;
     this.spawnDelay = this.difficulty.spawnDelay;
     this.distance = 0;
@@ -112,6 +119,7 @@ export default class GameScene extends Phaser.Scene {
     this.updatePlayer(time, dt);
     this.updateMovingHazards(time, dt);
     this.updateFuelStations(dt);
+    this.updateFuelDrainObstacles(dt);
     this.updateExtraLifePickups(dt);
     this.updatePowerups(dt);
     this.updateBridges();
@@ -164,6 +172,7 @@ export default class GameScene extends Phaser.Scene {
 
     this.enemies = this.physics.add.group();
     this.fuels = this.physics.add.group();
+    this.fuelDrains = this.physics.add.group();
     this.extraLives = this.physics.add.group();
     this.powerups = this.physics.add.group();
     this.bridges = this.physics.add.group();
@@ -193,8 +202,10 @@ export default class GameScene extends Phaser.Scene {
       left: Phaser.Input.Keyboard.KeyCodes.A,
       right: Phaser.Input.Keyboard.KeyCodes.D,
       fire: Phaser.Input.Keyboard.KeyCodes.SPACE,
+      cheatLevel: Phaser.Input.Keyboard.KeyCodes.L,
     });
     this.input.keyboard.on("keydown", this.releaseRestartPause, this);
+    this.input.keyboard.on("keydown-L", this.promptLevelCheat, this);
     this.input.on("pointerdown", this.releaseRestartPause, this);
     this.input.addPointer(4);
     this.touchControls = {
@@ -287,6 +298,7 @@ export default class GameScene extends Phaser.Scene {
     this.hudBg = this.add.rectangle(0, 0, WIDTH, 56, 0x06141c, 0.72).setOrigin(0);
     this.scoreText = this.add.text(14, 10, "SCORE 0", this.hudTextStyle());
     this.livesText = this.add.text(14, 31, "LIVES 3", this.hudTextStyle());
+    this.reserveFuelText = this.add.text(128, 31, "TANKS 0/3", this.hudTextStyle());
     this.levelText = this.add.text(WIDTH - 106, 10, "LEVEL 1", this.hudTextStyle());
 
     this.fuelLabel = this.add.text(WIDTH - 178, 31, "FUEL", this.hudTextStyle());
@@ -305,6 +317,7 @@ export default class GameScene extends Phaser.Scene {
       this.hudBg,
       this.scoreText,
       this.livesText,
+      this.reserveFuelText,
       this.levelText,
       this.fuelLabel,
       this.fuelBack,
@@ -342,6 +355,7 @@ export default class GameScene extends Phaser.Scene {
     this.physics.add.overlap(this.bullets, this.bridges, this.bulletHitsBridge, undefined, this);
     this.physics.add.overlap(this.player, this.enemies, this.playerHitsDanger, undefined, this);
     this.physics.add.overlap(this.player, this.fuels, this.playerGetsFuel, undefined, this);
+    this.physics.add.overlap(this.player, this.fuelDrains, this.playerHitsFuelDrain, undefined, this);
     this.physics.add.overlap(this.player, this.extraLives, this.playerGetsExtraLife, undefined, this);
     this.physics.add.overlap(this.player, this.powerups, this.playerGetsPowerup, undefined, this);
     this.physics.add.overlap(this.player, this.bridges, this.playerHitsDanger, undefined, this);
@@ -480,6 +494,8 @@ export default class GameScene extends Phaser.Scene {
     } else {
       this.spawnBarrier();
     }
+
+    this.maybeSpawnFuelDrainObstacle();
   }
 
   spawnMovingEnemy(kind) {
@@ -526,6 +542,31 @@ export default class GameScene extends Phaser.Scene {
     fuel.body.setSize(24, 26).setOffset(6, 6);
     fuel.setData("laneOffset", Phaser.Math.Between(-38, 38));
     fuel.setVelocity(0, this.scrollSpeed * 0.44);
+  }
+
+  maybeSpawnFuelDrainObstacle() {
+    this.fuelDrainSpawnCountdown -= 1;
+    if (this.fuelDrainSpawnCountdown > 0) {
+      return;
+    }
+
+    this.fuelDrainSpawnCountdown = Phaser.Math.Between(...FUEL_DRAIN_SPAWN_RANGE);
+    this.spawnFuelDrainObstacle();
+  }
+
+  spawnFuelDrainObstacle() {
+    if (this.fuelDrains.countActive(true) > 0) {
+      return;
+    }
+
+    const pos = this.randomRiverPoint(-36);
+    const drain = this.fuelDrains.create(pos.x, -36, "fuel");
+    drain.setDepth(6);
+    drain.setAlpha(0.68);
+    drain.setTint(0xff324d);
+    drain.body.setSize(24, 26).setOffset(6, 6);
+    drain.setData("laneOffset", Phaser.Math.Between(-42, 42));
+    drain.setVelocity(0, this.scrollSpeed * 0.5);
   }
 
   maybeSpawnPowerup(source) {
@@ -640,6 +681,24 @@ export default class GameScene extends Phaser.Scene {
     }
   }
 
+  updateFuelDrainObstacles(dt) {
+    for (const drain of this.fuelDrains.getChildren()) {
+      if (!drain.active) {
+        continue;
+      }
+
+      const bounds = this.getRiverBoundsAt(drain.y);
+      const margin = 36;
+      const maxOffset = Math.max(0, bounds.width / 2 - margin);
+      const laneOffset = Phaser.Math.Clamp(drain.getData("laneOffset") ?? 0, -maxOffset, maxOffset);
+      const targetX = Phaser.Math.Clamp(bounds.center + laneOffset, bounds.left + margin, bounds.right - margin);
+
+      drain.x = Phaser.Math.Linear(drain.x, targetX, 5 * dt);
+      drain.x = Phaser.Math.Clamp(drain.x, bounds.left + margin, bounds.right - margin);
+      drain.setVelocityY(this.scrollSpeed * 0.5);
+    }
+  }
+
   updateExtraLifePickups(dt) {
     for (const life of this.extraLives.getChildren()) {
       if (!life.active) {
@@ -710,7 +769,7 @@ export default class GameScene extends Phaser.Scene {
       }
     });
 
-    [this.enemies, this.fuels, this.extraLives, this.powerups, this.bridges].forEach((group) => {
+    [this.enemies, this.fuels, this.fuelDrains, this.extraLives, this.powerups, this.bridges].forEach((group) => {
       group.children.each((item) => {
         if (item.active && item.y > HEIGHT + 80) {
           if (item.getData("kind") === "bridge") {
@@ -724,7 +783,7 @@ export default class GameScene extends Phaser.Scene {
   }
 
   clearRunObjects() {
-    [this.enemies, this.fuels, this.extraLives, this.powerups, this.bridges].forEach((group) => {
+    [this.enemies, this.fuels, this.fuelDrains, this.extraLives, this.powerups, this.bridges].forEach((group) => {
       group.children.each((item) => {
         this.tweens.killTweensOf(item);
       });
@@ -739,8 +798,12 @@ export default class GameScene extends Phaser.Scene {
   }
 
   consumeFuel(dt) {
-    this.fuel -= (this.difficulty.fuelBurn + this.level * this.difficulty.fuelBurnStep) * dt;
+    this.fuel -= this.getFuelBurnRate() * dt;
     if (this.fuel <= 0) {
+      if (this.useReserveFuelTank()) {
+        return;
+      }
+
       this.fuel = 0;
       this.playSfx("fuel-required");
       this.loseLife("OUT OF FUEL");
@@ -754,6 +817,29 @@ export default class GameScene extends Phaser.Scene {
     } else if (this.fuel > 28) {
       this.lowFuelWarningActive = false;
     }
+  }
+
+  getFuelBurnRate() {
+    return this.difficulty.fuelBurn + (this.level - 1) * this.difficulty.fuelBurnStep;
+  }
+
+  getBridgeDistanceForLevel(level) {
+    return level <= 1
+      ? this.difficulty.bridgeDistance
+      : this.difficulty.bridgeDistance + level * this.difficulty.bridgeStep;
+  }
+
+  useReserveFuelTank() {
+    if (this.reserveFuelTanks <= 0) {
+      return false;
+    }
+
+    this.reserveFuelTanks -= 1;
+    this.fuel = MAX_FUEL;
+    this.lowFuelWarningActive = false;
+    this.playSfx("refuel");
+    this.showMessage(`RESERVE FUEL ${this.reserveFuelTanks}/${MAX_RESERVE_TANKS}`);
+    return true;
   }
 
   checkBankCollision() {
@@ -863,13 +949,44 @@ export default class GameScene extends Phaser.Scene {
   }
 
   playerGetsFuel(player, fuel) {
-    this.fuel = Phaser.Math.Clamp(this.fuel + 34, 0, MAX_FUEL);
+    let message = "FUEL +";
+
+    if (this.fuel >= RESERVE_TANK_THRESHOLD && this.reserveFuelTanks < MAX_RESERVE_TANKS) {
+      this.reserveFuelTanks += 1;
+      this.fuel = MAX_FUEL;
+      message = `TANK STORED ${this.reserveFuelTanks}/${MAX_RESERVE_TANKS}`;
+    } else {
+      this.fuel = Phaser.Math.Clamp(this.fuel + 34, 0, MAX_FUEL);
+      if (this.reserveFuelTanks >= MAX_RESERVE_TANKS && this.fuel >= RESERVE_TANK_THRESHOLD) {
+        message = "TANKS FULL";
+      }
+    }
+
     this.lowFuelWarningActive = false;
     this.addScore(60);
     this.createExplosion(fuel.x, fuel.y, 10);
     fuel.destroy();
     this.playSfx("refuel");
-    this.showMessage("FUEL +");
+    this.showMessage(message);
+  }
+
+  playerHitsFuelDrain(player, drain) {
+    if (this.invulnerable || this.gameEnded) {
+      return;
+    }
+
+    this.fuel = Phaser.Math.Clamp(this.fuel - FUEL_DRAIN_DAMAGE, 0, MAX_FUEL);
+    this.lowFuelWarningActive = this.fuel <= 20;
+    this.addScore(25);
+    this.createExplosion(drain.x, drain.y, 10);
+    drain.destroy();
+    this.playSfx("fuel-required");
+
+    if (this.fuel <= 0 && this.useReserveFuelTank()) {
+      return;
+    }
+
+    this.showMessage(`FUEL -${FUEL_DRAIN_DAMAGE}`);
   }
 
   playerGetsExtraLife(player, life) {
@@ -1039,11 +1156,45 @@ export default class GameScene extends Phaser.Scene {
     this.clearPowerupEffects();
     this.bridgeActive = false;
     this.distance = 0;
-    this.fuel = Math.max(54, this.fuel);
+    this.fuel = MAX_FUEL;
     this.lowFuelWarningActive = false;
     this.player.setPosition(PLAYER_START.x, PLAYER_START.y);
     this.player.setVelocity(0, 0);
     this.player.setRotation(0);
+  }
+
+  promptLevelCheat(event) {
+    if (!event.shiftKey || this.gameEnded) {
+      return;
+    }
+
+    const requestedLevel = Number.parseInt(window.prompt(`Warp to level (1-${MAX_CHEAT_LEVEL})`, String(this.level)) ?? "", 10);
+    if (!Number.isInteger(requestedLevel)) {
+      return;
+    }
+
+    this.warpToLevel(Phaser.Math.Clamp(requestedLevel, 1, MAX_CHEAT_LEVEL));
+  }
+
+  warpToLevel(level) {
+    this.level = level;
+    this.scrollSpeed = this.difficulty.scrollSpeed + (level - 1) * this.difficulty.speedStep;
+    this.spawnDelay = Math.max(
+      this.difficulty.minSpawnDelay,
+      this.difficulty.spawnDelay - (level - 1) * this.difficulty.spawnStep,
+    );
+
+    if (this.spawnTimer) {
+      this.spawnTimer.delay = this.spawnDelay;
+    }
+
+    this.resetLevelStart();
+    this.waitingForRestart = false;
+    this.invulnerable = false;
+    this.player.setAlpha(1);
+    this.nextBridgeDistance = this.getBridgeDistanceForLevel(level);
+    this.showMessage(`LEVEL ${level}`);
+    this.updateHud();
   }
 
   clearPowerupEffects() {
@@ -1092,7 +1243,7 @@ export default class GameScene extends Phaser.Scene {
     this.fuel = Phaser.Math.Clamp(this.fuel + 46, 0, MAX_FUEL);
     this.lowFuelWarningActive = false;
     this.distance = 0;
-    this.nextBridgeDistance = this.difficulty.bridgeDistance + this.level * this.difficulty.bridgeStep;
+    this.nextBridgeDistance = this.getBridgeDistanceForLevel(this.level);
     this.showMessage(`LEVEL ${this.level}`);
   }
 
@@ -1134,6 +1285,7 @@ export default class GameScene extends Phaser.Scene {
   updateHud() {
     this.scoreText.setText(`SCORE ${this.score}`);
     this.livesText.setText(`LIVES ${this.lives}`);
+    this.reserveFuelText.setText(`TANKS ${this.reserveFuelTanks}/${MAX_RESERVE_TANKS}`);
     this.levelText.setText(`LEVEL ${this.level}`);
 
     const width = Phaser.Math.Clamp(this.fuel / MAX_FUEL, 0, 1) * 108;
